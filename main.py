@@ -305,6 +305,11 @@ def get_model(cfg):
             task=cfg.EXP.TASK,
             dataset=cfg.EXP.DATASET,
             **cfg.MODEL.MV)
+    elif cfg.EXP.MODEL_NAME == 'mvpointnet':
+        model = models.MVPointNet(
+            task=cfg.EXP.TASK,
+            dataset=cfg.EXP.DATASET,
+            **cfg.MODEL.MV)
     else:
         assert False
 
