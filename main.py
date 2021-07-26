@@ -19,8 +19,6 @@ from all_utils import (
 from configs import get_cfg_defaults
 import pprint
 from pointnet_pyt.pointnet.model import feature_transform_regularizer
-import sys
-
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 if DEVICE.type == 'cpu':
@@ -92,7 +90,7 @@ def get_inp(task, model, data_batch, batch_proc, dataset_name):
     else:
         assert False
 
-    return  inp
+    return inp
 
 
 def get_loss(task, loss_name, data_batch, out, dataset_name):
@@ -147,7 +145,7 @@ def validate(task, loader, model, dataset_name):
 
     with torch.no_grad():
         bar = ProgressBar(max_value=len(loader))
-        time5  = time()
+        time5 = time()
         for i, data_batch in enumerate(loader):
             time1 = time()
             inp = get_inp(task, model, data_batch, loader.dataset.batch_proc, dataset_name)
@@ -175,14 +173,14 @@ def train(task, loader, model, optimizer, loss_name, dataset_name):
     model.train()
 
     def get_extra_param():
-       return None
+        return None
 
     perf = PerfTrackTrain(task, extra_param=get_extra_param())
     time_forward = 0
     time_backward = 0
     time_data_loading = 0
 
-    time3  = time()
+    time3 = time()
     for i, data_batch in enumerate(loader):
         time1 = time()
 
@@ -228,7 +226,7 @@ def train(task, loader, model, optimizer, loss_name, dataset_name):
     return perf.agg(), perf.agg_loss()
 
 
-def save_checkpoint(id, epoch, model, optimizer,  lr_sched, bnm_sched, test_perf, cfg):
+def save_checkpoint(id, epoch, model, optimizer, lr_sched, bnm_sched, test_perf, cfg):
     model.cpu()
     path = f"./runs/{cfg.EXP.EXP_ID}/model_{id}.pth"
     torch.save({
@@ -277,6 +275,8 @@ def load_model_opt_sched(model, optimizer, lr_sched, bnm_sched, model_path):
 
 
 def get_model(cfg):
+    # sucheng: model is contructed from here.
+    #   i'm gonna add my own model here.
     if cfg.EXP.MODEL_NAME == 'simpleview':
         model = models.MVModel(
             task=cfg.EXP.TASK,
@@ -300,6 +300,11 @@ def get_model(cfg):
         model = models.PointNet(
             task=cfg.EXP.TASK,
             dataset=cfg.EXP.DATASET)
+    elif cfg.EXP.MODEL_NAME == 'liftnet':
+        model = models.LiftNet(
+            task=cfg.EXP.TASK,
+            dataset=cfg.EXP.DATASET,
+            **cfg.MODEL.MV)
     else:
         assert False
 
@@ -338,7 +343,7 @@ def get_optimizer(optim_name, tr_arg, model):
 def entry_train(cfg, resume=False, model_path=""):
     loader_train = create_dataloader(split='train', cfg=cfg)
     loader_valid = create_dataloader(split='valid', cfg=cfg)
-    loader_test  = create_dataloader(split='test',  cfg=cfg)
+    loader_test = create_dataloader(split='test', cfg=cfg)
 
     model = get_model(cfg)
     model.to(DEVICE)
@@ -352,7 +357,6 @@ def entry_train(cfg, resume=False, model_path=""):
         model = load_model_opt_sched(model, optimizer, lr_sched, bnm_sched, model_path)
     else:
         assert model_path == ""
-
 
     log_dir = f"./runs/{cfg.EXP.EXP_ID}"
     if not os.path.exists(log_dir):
@@ -369,10 +373,10 @@ def entry_train(cfg, resume=False, model_path=""):
         tb.update('train', epoch, train_perf)
 
         if (not cfg.EXP_EXTRA.no_val) and epoch % cfg.EXP_EXTRA.val_eval_freq == 0:
-                print('\nValidating..')
-                val_perf = validate(cfg.EXP.TASK, loader_valid, model, cfg.EXP.DATASET)
-                pprint.pprint(val_perf, width=80)
-                tb.update('val', epoch, val_perf)
+            print('\nValidating..')
+            val_perf = validate(cfg.EXP.TASK, loader_valid, model, cfg.EXP.DATASET)
+            pprint.pprint(val_perf, width=80)
+            tb.update('val', epoch, val_perf)
         else:
             val_perf = defaultdict(float)
 
@@ -392,18 +396,18 @@ def entry_train(cfg, resume=False, model_path=""):
 
         if (not cfg.EXP_EXTRA.no_val) and track_train.save_model(epoch_id=epoch, split='val'):
             print('Saving best model on the validation set')
-            save_checkpoint('best_val', epoch, model, optimizer,  lr_sched, bnm_sched, test_perf, cfg)
+            save_checkpoint('best_val', epoch, model, optimizer, lr_sched, bnm_sched, test_perf, cfg)
 
         if (not cfg.EXP_EXTRA.no_test) and track_train.save_model(epoch_id=epoch, split='test'):
             print('Saving best model on the test set')
-            save_checkpoint('best_test', epoch, model, optimizer,  lr_sched, bnm_sched, test_perf, cfg)
+            save_checkpoint('best_test', epoch, model, optimizer, lr_sched, bnm_sched, test_perf, cfg)
 
         if (not cfg.EXP_EXTRA.no_val) and track_train.early_stop(epoch_id=epoch):
             print(f"Early stopping at {epoch} as val acc did not improve for {cfg.TRAIN.early_stop} epochs.")
             break
 
         if (not (cfg.EXP_EXTRA.save_ckp == 0)) and (epoch % cfg.EXP_EXTRA.save_ckp == 0):
-            save_checkpoint(f'{epoch}', epoch, model, optimizer,  lr_sched, bnm_sched, test_perf, cfg)
+            save_checkpoint(f'{epoch}', epoch, model, optimizer, lr_sched, bnm_sched, test_perf, cfg)
 
         if cfg.EXP.OPTIMIZER == 'vanilla':
             assert bnm_sched is None
@@ -412,7 +416,7 @@ def entry_train(cfg, resume=False, model_path=""):
             assert False
 
     print('Saving the final model')
-    save_checkpoint('final', epoch, model, optimizer,  lr_sched, bnm_sched, test_perf, cfg)
+    save_checkpoint('final', epoch, model, optimizer, lr_sched, bnm_sched, test_perf, cfg)
 
     print('\nTesting on the final model..')
     last_test_perf = validate(cfg.EXP.TASK, loader_test, model, cfg.EXP.DATASET)
@@ -485,6 +489,7 @@ def pn2_vote_evaluation(cfg, model_path, log_file):
     pn2_vote_evaluate_cls(loader_test, model, log_file)
 
 
+# see how this baseline is constructed.
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.set_defaults(entry=lambda cmd_args: parser.print_help())
@@ -539,7 +544,7 @@ if __name__ == '__main__':
         cfg.freeze()
         print(cfg)
 
-        seed  = cfg.EXP.SEED
+        seed = cfg.EXP.SEED
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)

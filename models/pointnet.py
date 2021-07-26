@@ -3,6 +3,7 @@ import torch.nn as nn
 from pointnet_pyt.pointnet.model import PointNetCls
 from all_utils import DATASET_NUM_CLASS
 
+
 class PointNet(nn.Module):
 
     def __init__(self, dataset, task):
@@ -10,7 +11,7 @@ class PointNet(nn.Module):
         self.task = task
         num_class = DATASET_NUM_CLASS[dataset]
         if self.task == 'cls_trans':
-            self.model =  PointNetCls(k=num_class, feature_transform=True)
+            self.model = PointNetCls(k=num_class, feature_transform=True)
         else:
             assert False
 

@@ -4,6 +4,7 @@ import torch
 RESOLUTION = 128
 TRANS = -1.4
 
+
 def euler2mat(angle):
     """Convert euler angles to rotation matrix.
      :param angle: [3] or [b, 3]
@@ -31,8 +32,8 @@ def euler2mat(angle):
 
     # zero = torch.zeros([b], requires_grad=False, device=angle.device)[0]
     # one = torch.ones([b], requires_grad=False, device=angle.device)[0]
-    zero = z.detach()*0
-    one = zero.detach()+1
+    zero = z.detach() * 0
+    one = zero.detach() + 1
     zmat = torch.stack([cosz, -sinz, zero,
                         sinz, cosz, zero,
                         zero, zero, one], dim=_dim).reshape(_view)
@@ -74,15 +75,18 @@ def distribute(depth, _x, _y, size_x, size_y, image_height, image_width):
     assert size_y % 2 == 0 or size_y == 1
     batch, _ = depth.size()
     epsilon = torch.tensor([1e-12], requires_grad=False, device=depth.device)
+    # sucheng: size_x and size_y is resolution, thus this is in the screen frame.
+    # sucheng: strange! size_x and size_y are both 1.
     _i = torch.linspace(-size_x / 2, (size_x / 2) - 1, size_x, requires_grad=False, device=depth.device)
     _j = torch.linspace(-size_y / 2, (size_y / 2) - 1, size_y, requires_grad=False, device=depth.device)
 
+    # sucheng: do a meshgrid to prepare for parallel processing.
     extended_x = _x.unsqueeze(2).repeat([1, 1, size_x]) + _i  # [batch, num_points, size_x]
     extended_y = _y.unsqueeze(2).repeat([1, 1, size_y]) + _j  # [batch, num_points, size_y]
-
     extended_x = extended_x.unsqueeze(3).repeat([1, 1, 1, size_y])  # [batch, num_points, size_x, size_y]
     extended_y = extended_y.unsqueeze(2).repeat([1, 1, size_x, 1])  # [batch, num_points, size_x, size_y]
 
+    # sucheng: truncate to pixel.
     extended_x.ceil_()
     extended_y.ceil_()
 
@@ -105,13 +109,14 @@ def distribute(depth, _x, _y, size_x, size_y, image_height, image_width):
     # [batch, num_points, size_x, size_y]
     distance = torch.abs((extended_x - _x.unsqueeze(2).unsqueeze(3))
                          * (extended_y - _y.unsqueeze(2).unsqueeze(3)))
+    # sucheng: value is depth.
     weight = (masked_points.float()
-          * (1 / (value + epsilon)))  # [batch, num_points, size_x, size_y]
+              * (1 / (value + epsilon)))  # [batch, num_points, size_x, size_y]
     weighted_value = value * weight
 
+    # sucheng: give each screen pixel a coordinate, so that we can scatter weight into it.
     weight = weight.view([batch, -1])
     weighted_value = weighted_value.view([batch, -1])
-
     coordinates = (extended_x.view([batch, -1]) * image_width) + extended_y.view(
         [batch, -1])
     coord_max = image_height * image_width
@@ -122,6 +127,7 @@ def distribute(depth, _x, _y, size_x, size_y, image_height, image_width):
         [batch, image_width * image_height],
         device=depth.device).scatter_add(1, coordinates.long(), weight)
 
+    # sucheng: add depth 1 to non-projected pixel.
     masked_zero_weight_scattered = (weight_scattered == 0.0)
     weight_scattered += masked_zero_weight_scattered.float()
 
@@ -129,11 +135,18 @@ def distribute(depth, _x, _y, size_x, size_y, image_height, image_width):
         [batch, image_width * image_height],
         device=depth.device).scatter_add(1, coordinates.long(), weighted_value)
 
-    return weighed_value_scattered,  weight_scattered
+    return weighed_value_scattered, weight_scattered
 
 
 def points2depth(points, image_height, image_width, size_x=4, size_y=4):
     """
+    This method assumes points are within the range of [-1, 1].
+    And what we are doing is actually -> first scale the depth to simulate a perspective projection -> NDC.
+    Then build a mapping from [-1, 1] to [image_height, image_width].
+    Which is just a very simple multiplication and truncation.
+    The value is the point depth.
+    For those pixels which are not corresponded to any point, just fill some dummy value.
+
     :param points: [B, num_points, 3]
     :param image_width:
     :param image_height:
@@ -145,12 +158,16 @@ def points2depth(points, image_height, image_width, size_x=4, size_y=4):
 
     epsilon = torch.tensor([1e-12], requires_grad=False, device=points.device)
     # epsilon not needed, kept here to ensure exact replication of old version
+    # sucheng: this should be rasterization.
+    #   this is sort of like a perspective projection.
+    #   and make the aspect ratio to be identical.
     coord_x = (points[:, :, 0] / (points[:, :, 2] + epsilon)) * (image_width / image_height)  # [batch, num_points]
     coord_y = (points[:, :, 1] / (points[:, :, 2] + epsilon))  # [batch, num_points]
 
     batch, total_points, _ = points.size()
     depth = points[:, :, 2]  # [batch, num_points]
     # pdb.set_trace()
+    # sucheng: ?
     _x = ((coord_x + 1) * image_height) / 2
     _y = ((coord_y + 1) * image_width) / 2
 
@@ -178,7 +195,7 @@ def batched_index_select(inp, dim, index):
     index: B x M
     """
     views = [inp.shape[0]] + \
-        [1 if i != dim else -1 for i in range(1, len(inp.shape))]
+            [1 if i != dim else -1 for i in range(1, len(inp.shape))]
     expanse = list(inp.shape)
     expanse[0] = -1
     expanse[dim] = -1
@@ -217,7 +234,7 @@ def distribute_img_fea_points(img_fea, point_coord):
         point_fea: [B, num_points, C], for points with coordinates outside the image, we return 0
     """
     B, C, H, W = list(img_fea.size())
-    img_fea = img_fea.permute(0, 2, 3, 1).view([B, H*W, C])
+    img_fea = img_fea.permute(0, 2, 3, 1).view([B, H * W, C])
 
     coord_max = ((H - 1) * W) + (W - 1)
     mask_point_coord = (point_coord >= 0) * (point_coord <= coord_max)
@@ -231,12 +248,16 @@ def distribute_img_fea_points(img_fea, point_coord):
     return point_fea
 
 
-class PCViews:
+import torch
+
+
+class PCViews(torch.nn.Module):
     """For creating images from PC based on the view information. Faster as the
     repeated operations are done only once whie initialization.
     """
 
     def __init__(self):
+        super(PCViews, self).__init__()
         _views = np.asarray([
             [[0 * np.pi / 2, 0, np.pi / 2], [0, 0, TRANS]],
             [[1 * np.pi / 2, 0, np.pi / 2], [0, 0, TRANS]],
@@ -245,10 +266,14 @@ class PCViews:
             [[0, -np.pi / 2, np.pi / 2], [0, 0, TRANS]],
             [[0, np.pi / 2, np.pi / 2], [0, 0, TRANS]]])
         self.num_views = 6
-        angle = torch.tensor(_views[:, 0, :]).float().cuda()
+        angle = torch.tensor(_views[:, 0, :]).float()
         self.rot_mat = euler2mat(angle).transpose(1, 2)
-        self.translation = torch.tensor(_views[:, 1, :]).float().cuda()
+        self.translation = torch.tensor(_views[:, 1, :]).float()
         self.translation = self.translation.unsqueeze(1)
+        # sucheng: register rot_mat and translation as torch parameter such that they can be moved to gpu.
+        #   we need to do this if the tensor is simply created by torch.tensor.
+        self.rot_mat = torch.nn.Parameter(self.rot_mat)
+        self.translation = torch.nn.Parameter(self.translation)
 
     def get_img(self, points):
         """Get image based on the prespecified specifications.

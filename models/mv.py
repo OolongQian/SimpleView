@@ -8,17 +8,16 @@ from models.mv_utils import PCViews
 class MVModel(nn.Module):
     def __init__(self, task, dataset, backbone,
                  feat_size):
-
-        super().__init__()
+        super(MVModel, self).__init__()
         assert task == 'cls'
         self.task = task
         self.num_class = DATASET_NUM_CLASS[dataset]
+        # sucheng: should this dropout_p be standardized?
         self.dropout_p = 0.5
         self.feat_size = feat_size
 
-        pc_views = PCViews()
-        self.num_views = pc_views.num_views
-        self._get_img = pc_views.get_img
+        self.pc_views = PCViews()
+        self.num_views = self.pc_views.num_views
 
         img_layers, in_features = self.get_img_layers(
             backbone, feat_size=feat_size)
@@ -35,7 +34,6 @@ class MVModel(nn.Module):
         :param pc:
         :return:
         """
-
         pc = pc.cuda()
         img = self.get_img(pc)
         feat = self.img_model(img)
@@ -44,7 +42,7 @@ class MVModel(nn.Module):
         return out
 
     def get_img(self, pc):
-        img = self._get_img(pc)
+        img = self.pc_views.get_img(pc)
         img = torch.tensor(img).float()
         img = img.to(next(self.parameters()).device)
         assert len(img.shape) == 3
