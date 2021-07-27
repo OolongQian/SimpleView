@@ -10,7 +10,6 @@ import numpy as np
 from progressbar import ProgressBar
 import sys
 
-
 # Additional information that might be necessary to get the model
 DATASET_NUM_CLASS = {
     'modelnet40': 40,
@@ -18,6 +17,7 @@ DATASET_NUM_CLASS = {
     'modelnet40_pn2': 40,
     'modelnet40_dgcnn': 40,
 }
+
 
 class TensorboardManager:
     def __init__(self, path):
@@ -61,7 +61,6 @@ class TrackTrain:
             self.best_train = train_metric
             self.best_epoch_train = epoch_id
 
-
     def save_model(self, epoch_id, split):
         """
         Whether to save the current model or not
@@ -102,6 +101,7 @@ class PerfTrackVal:
     """
     Records epoch wise performance for validation
     """
+
     def __init__(self, task, extra_param=None):
         self.task = task
         if task in ['cls', 'cls_trans']:
@@ -111,6 +111,7 @@ class PerfTrackVal:
             self.class_corr = None
         else:
             assert False
+
     def update(self, data_batch, out):
         if self.task in ['cls', 'cls_trans']:
             correct = self.get_correct_list(out['logit'], data_batch['label'])
@@ -118,11 +119,12 @@ class PerfTrackVal:
             self.update_class_see_corr(out['logit'], data_batch['label'])
         else:
             assert False
+
     def agg(self):
         if self.task in ['cls', 'cls_trans']:
             perf = {
                 'acc': self.get_avg_list(self.all),
-                'class_acc': np.mean(np.array(self.class_corr) / np.array(self.class_seen,dtype=np.float))
+                'class_acc': np.mean(np.array(self.class_corr) / np.array(self.class_seen, dtype=np.float))
             }
         else:
             assert False
@@ -145,6 +147,7 @@ class PerfTrackVal:
         label = label.to(logit.device)
         pred_class = logit.argmax(axis=1)
         return (label == pred_class).to('cpu').tolist()
+
     @staticmethod
     def get_avg_list(all_list):
         for x in all_list:
@@ -156,6 +159,7 @@ class PerfTrackTrain(PerfTrackVal):
     """
     Records epoch wise performance during training
     """
+
     def __init__(self, task, extra_param=None):
         super().__init__(task, extra_param)
         # add a list to track loss
@@ -208,19 +212,21 @@ def rscnn_voting_evaluate_cls(loader, model, data_batch_to_points_target,
 
     NUM_REPEAT = 300
     NUM_VOTE = 10
-    PointcloudScale = d_utils.PointcloudScale()   # initialize random scaling
+    PointcloudScale = d_utils.PointcloudScale()  # initialize random scaling
 
     def data_aug(vote_id, pc):
         # furthest point sampling
         # (B, npoint)
         fps_idx = pointnet2_utils.furthest_point_sample(points, 1200)
         new_fps_idx = fps_idx[:, np.random.choice(1200, num_points, False)]
-        new_points = pointnet2_utils.gather_operation(points.transpose(1, 2).contiguous(), new_fps_idx).transpose(1, 2).contiguous()
+        new_points = pointnet2_utils.gather_operation(points.transpose(1, 2).contiguous(), new_fps_idx).transpose(1,
+                                                                                                                  2).contiguous()
         if vote_id > 0:
             pc_out = PointcloudScale(new_points)
         else:
             pc_out = pc
         return pc_out
+
     print(f"RSCNN EVALUATE, NUM_REPEAT {NUM_REPEAT}, NUM_VOTE {NUM_VOTE}")
 
     num_points = loader.dataset.num_points
@@ -228,7 +234,7 @@ def rscnn_voting_evaluate_cls(loader, model, data_batch_to_points_target,
 
     # evaluate
     sys.stdout.flush()
-    PointcloudScale = d_utils.PointcloudScale()   # initialize random scaling
+    PointcloudScale = d_utils.PointcloudScale()  # initialize random scaling
     model.eval()
     global_acc = 0
     with torch.no_grad():
@@ -307,16 +313,16 @@ def pn2_vote_evaluate_cls(dataloader, model, log_file, num_votes=[12]):
                 BATCH_SIZE = batch_data.shape[0]
                 NUM_POINT = batch_data.shape[1]
 
-                batch_pred_sum = np.zeros((BATCH_SIZE, NUM_CLASSES)) # score for classes
+                batch_pred_sum = np.zeros((BATCH_SIZE, NUM_CLASSES))  # score for classes
                 for vote_idx in range(_num_votes):
                     # Shuffle point order to achieve different farthest samplings
                     shuffled_indices = np.arange(NUM_POINT)
                     np.random.shuffle(shuffled_indices)
                     rotated_data = provider.rotate_point_cloud_by_angle(
-                        batch_data[:, shuffled_indices, :], vote_idx/float(_num_votes) * np.pi * 2)
+                        batch_data[:, shuffled_indices, :], vote_idx / float(_num_votes) * np.pi * 2)
 
                     inp = {'pc': torch.tensor(rotated_data)}
-                    out =  model(**inp)
+                    out = model(**inp)
                     pred_val = np.array(out['logit'].cpu())
                     batch_pred_sum += pred_val
 
@@ -330,12 +336,11 @@ def pn2_vote_evaluate_cls(dataloader, model, log_file, num_votes=[12]):
                     total_seen_class[l] += 1
                     total_correct_class[l] += (pred_val[i] == l)
 
-
-            class_accuracies = np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)
+            class_accuracies = np.array(total_correct_class) / np.array(total_seen_class, dtype=np.float)
             message = ""
             for i, name in enumerate(SHAPE_NAMES):
                 message += f"\n {'%10s: %0.3f' % (name, class_accuracies[i])}"
-            message += f"\n {'eval accuracy: %f'% (total_correct / float(total_seen))}"
-            message += f"\n {'eval avg class acc: %f' % (np.mean(np.array(total_correct_class)/np.array(total_seen_class,dtype=np.float)))}"
+            message += f"\n {'eval accuracy: %f' % (total_correct / float(total_seen))}"
+            message += f"\n {'eval avg class acc: %f' % (np.mean(np.array(total_correct_class) / np.array(total_seen_class, dtype=np.float)))}"
             terminal.write(message)
             log.write(message)

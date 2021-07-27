@@ -197,10 +197,12 @@ def train(task, loader, model, optimizer, loss_name, dataset_name):
             optimizer.zero_grad()
             loss.backward()
             bad_grad = False
-            for x in model.parameters():
+            for name, x in model.named_parameters():
                 if x.grad is not None:
                     if x.grad.ne(x.grad).any():
+                        print(name)
                         print("WARNING: nan in a gradient")
+                        exit(0)
                         bad_grad = True
                         break
                     if ((x.grad == float('inf')) | (x.grad == float('-inf'))).any():
@@ -307,6 +309,11 @@ def get_model(cfg):
             **cfg.MODEL.MV)
     elif cfg.EXP.MODEL_NAME == 'mvpointnet':
         model = models.MVPointNet(
+            task=cfg.EXP.TASK,
+            dataset=cfg.EXP.DATASET,
+            **cfg.MODEL.MV)
+    elif cfg.EXP.MODEL_NAME == 'projnet':
+        model = models.ProjNet(
             task=cfg.EXP.TASK,
             dataset=cfg.EXP.DATASET,
             **cfg.MODEL.MV)

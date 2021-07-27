@@ -272,8 +272,8 @@ class PCViews(torch.nn.Module):
         self.translation = self.translation.unsqueeze(1)
         # sucheng: register rot_mat and translation as torch parameter such that they can be moved to gpu.
         #   we need to do this if the tensor is simply created by torch.tensor.
-        self.rot_mat = torch.nn.Parameter(self.rot_mat)
-        self.translation = torch.nn.Parameter(self.translation)
+        self.rot_mat = torch.nn.Parameter(self.rot_mat, requires_grad=False)
+        self.translation = torch.nn.Parameter(self.translation, requires_grad=False)
 
     def get_img(self, points):
         """Get image based on the prespecified specifications.
@@ -300,6 +300,79 @@ class PCViews(torch.nn.Module):
             size_y=1,
         )
         return img
+
+    def get_featured_img(self, points, point_feats):
+        # rewrite and simplify the rasterization.
+        B, _, _ = points.shape
+        V = self.translation.shape[0]
+
+        point_feats = torch.repeat_interleave(point_feats, V, dim=0)
+        points = self.point_transform(
+            points=torch.repeat_interleave(points, V, dim=0),
+            rot_mat=self.rot_mat.repeat(B, 1, 1),
+            translation=self.translation.repeat(B, 1, 1))
+
+        # enter points2depth, in mv_utils.
+        depth = points[:, :, 2]
+        epsilon = torch.tensor([1e-12], requires_grad=False, device=points.device)
+        # epsilon = torch.tensor([1], requires_grad=False, device=points.device)
+
+        # do perspective projection.
+        H, W = RESOLUTION, RESOLUTION
+        # note that coord_x/y is within [-1, 1].
+        coord_x = (points[:, :, 0] / (points[:, :, 2] + epsilon)) * (W / H)  # [batch, num_points]
+        coord_y = (points[:, :, 1] / (points[:, :, 2] + epsilon))  # [batch, num_points]
+
+        coord_x = ((coord_x + 1) * H) / 2
+        coord_y = ((coord_y + 1) * W) / 2
+        coord_x.ceil_()
+        coord_y.ceil_()
+
+        masked_points = ((coord_x >= 0)
+                         * (coord_x <= H - 1)
+                         * (coord_y >= 0)
+                         * (coord_y <= W - 1)
+                         * (depth >= 0))
+
+        # prevent error.
+        coord_x = coord_x % H
+        coord_y = coord_y % W
+
+        # this is the intensity value -> reciprocal to depth.
+        # weight = masked_points.float() / (depth + epsilon)
+        weight_cnt = masked_points.float()
+        weight_depth = masked_points.float() / depth  # this is still the depth image.
+
+        # i would like to use torch scatter_add, but the indexed indices can only
+        #   goes along a single axis. Therefore I need to collapse the 2D to 1D.
+        coord = coord_x * W + coord_y
+        scatter_image_depth = torch.zeros(size=(B * V, H * W), device=depth.device).scatter_add(1, coord.long(),
+                                                                                                weight_depth)
+        scatter_image_cnt = torch.zeros(size=(B * V, H * W), device=depth.device).scatter_add(1, coord.long(),
+                                                                                              weight_cnt)
+        scatter_image_depth = scatter_image_depth + (scatter_image_depth == 0).float()
+        # since it is reciprocal here, we need reciprocal in image_depth_weight.
+        scatter_image_normalized = scatter_image_cnt / scatter_image_depth
+        scatter_image_normalized = torch.reshape(scatter_image_normalized, shape=(B * V, 1, H, W))
+
+        # follow what we've done above.
+        feat_size = point_feats.shape[-1]
+        masked_points = torch.unsqueeze(masked_points, dim=-1).repeat(1, 1, feat_size).float()
+        depth = torch.unsqueeze(depth, dim=-1).repeat(1, 1, feat_size).float()
+        weight_cnt = masked_points
+        weight_depth = masked_points / depth  # this is still the depth image.
+        coord_feat = torch.unsqueeze(coord, dim=-1).repeat(1, 1, feat_size)
+        scatter_feat_depth = torch.zeros(size=(B * V, H * W, feat_size),
+                                         device=depth.device).scatter_add(1, coord_feat.long(), weight_depth)
+        scatter_feat_cnt = torch.zeros(size=(B * V, H * W, feat_size), device=depth.device).scatter_add(1,
+                                                                                                        coord_feat.long(),
+                                                                                                        weight_cnt)
+        scatter_feat_depth = scatter_feat_depth + (scatter_feat_depth == 0).float()
+        scatter_feat_normalized = scatter_feat_cnt / scatter_feat_depth
+        scatter_feat_normalized = torch.reshape(scatter_feat_normalized, shape=(B * V, feat_size, H, W))
+
+        featured_image = torch.cat([scatter_image_normalized, scatter_feat_normalized], dim=1)
+        return featured_image
 
     @staticmethod
     def point_transform(points, rot_mat, translation):

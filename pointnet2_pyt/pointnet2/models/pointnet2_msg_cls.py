@@ -89,28 +89,28 @@ class Pointnet2MSG(nn.Module):
         if version == 1.0:
             self.FC_layer = (
                 pt_utils.Seq(1024)
-                .fc(512, bn=True)
-                # potentially different for original one
-                # https://github.com/charlesq34/pointnet2/blob/master/models/pointnet2_cls_msg.py#L34
-                .dropout(0.5)
-                .fc(256, bn=True)
-                # potentially different for original one
-                # https://github.com/charlesq34/pointnet2/blob/master/models/pointnet2_cls_msg.py#L34
-                .dropout(0.5)
-                .fc(num_classes, activation=None)
+                    .fc(512, bn=True)
+                    # potentially different for original one
+                    # https://github.com/charlesq34/pointnet2/blob/master/models/pointnet2_cls_msg.py#L34
+                    .dropout(0.5)
+                    .fc(256, bn=True)
+                    # potentially different for original one
+                    # https://github.com/charlesq34/pointnet2/blob/master/models/pointnet2_cls_msg.py#L34
+                    .dropout(0.5)
+                    .fc(num_classes, activation=None)
             )
         elif version == 2.0:
             self.FC_layer = (
                 pt_utils.Seq(1024)
-                .fc(512, bn=True)
-                # potentially different for original one
-                # https://github.com/charlesq34/pointnet2/blob/master/models/pointnet2_cls_msg.py#L34
-                .dropout(0.6)
-                .fc(256, bn=True)
-                # potentially different for original one
-                # https://github.com/charlesq34/pointnet2/blob/master/models/pointnet2_cls_msg.py#L34
-                .dropout(0.6)
-                .fc(num_classes, activation=None)
+                    .fc(512, bn=True)
+                    # potentially different for original one
+                    # https://github.com/charlesq34/pointnet2/blob/master/models/pointnet2_cls_msg.py#L34
+                    .dropout(0.6)
+                    .fc(256, bn=True)
+                    # potentially different for original one
+                    # https://github.com/charlesq34/pointnet2/blob/master/models/pointnet2_cls_msg.py#L34
+                    .dropout(0.6)
+                    .fc(num_classes, activation=None)
             )
         else:
             assert False
@@ -168,7 +168,7 @@ class Pointnet2MSG5K(nn.Module):
             PointnetSAModuleMSG(
                 npoint=512,
                 radii=[0.1, 0.2, 0.4],
-                nsamples=[32,64,128],
+                nsamples=[32, 64, 128],
                 mlps=[
                     [input_channels, 32, 32, 64],
                     [input_channels, 64, 64, 128],
@@ -183,7 +183,7 @@ class Pointnet2MSG5K(nn.Module):
             PointnetSAModuleMSG(
                 npoint=128,
                 radii=[0.2, 0.4, 0.8],
-                nsamples=[64,64,128],
+                nsamples=[64, 64, 128],
                 mlps=[
                     [input_channels, 64, 64, 128],
                     [input_channels, 128, 128, 256],
@@ -198,11 +198,11 @@ class Pointnet2MSG5K(nn.Module):
 
         self.FC_layer = (
             pt_utils.Seq(1024)
-            .fc(512, bn=True)
-            .dropout(0.5)
-            .fc(256, bn=True)
-            .dropout(0.5)
-            .fc(num_classes, activation=None)
+                .fc(512, bn=True)
+                .dropout(0.5)
+                .fc(256, bn=True)
+                .dropout(0.5)
+                .fc(num_classes, activation=None)
         )
 
     def _break_up_pc(self, pc):
