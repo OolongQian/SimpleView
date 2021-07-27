@@ -196,7 +196,6 @@ def train(task, loader, model, optimizer, loss_name, dataset_name):
             print("WARNING: avoiding step as nan in the loss")
         else:
             optimizer.zero_grad()
-            print(loss.item())
             with torch.autograd.detect_anomaly():
                 loss.backward()
             # loss.backward()

@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-from dgcnn.pytorch.model import DGCNN as DGCNN_original
-from all_utils import DATASET_NUM_CLASS
+from dgcnn.pytorch.model import get_graph_feature
 from models.model_utils import Squeeze, BatchNormPoint
 from models.mv_utils import PCViews
+import torch.nn.functional as F
 
 
 class DgcnnAttentionFusion(nn.Module):
@@ -20,44 +20,67 @@ class DgcnnAttentionFusion(nn.Module):
         self.num_views = self.pc_views.num_views
 
         img_layers, in_features = self.get_img_layers(
-            backbone, feat_size=feat_size)
+            backbone, feat_size=feat_size * 4)
         self.img_model = nn.Sequential(*img_layers)
 
-        if task == "cls":
-            num_classes = DATASET_NUM_CLASS[dataset]
+        class Args:
+            def __init__(self):
+                self.k = 20
+                self.emb_dims = 1024
+                self.dropout = 0.3
+                self.leaky_relu = 1
 
-            # default arguments
-            class Args:
-                def __init__(self):
-                    self.k = 20
-                    self.emb_dims = 1024
-                    self.dropout = 0.5
-                    self.leaky_relu = 1
+        args = Args()
+        self.edge_conv1 = EdgeConvBlock(args=args, in_channel=6, out_channel=64)
+        self.edge_conv2 = EdgeConvBlock(args=args, in_channel=64 * 2, out_channel=64)
+        self.edge_conv3 = EdgeConvBlock(args=args, in_channel=64 * 2, out_channel=64)
 
-            args = Args()
-            self.dgcnn = DGCNN_original(args, output_channels=num_classes)
+        self.fusion1 = AttentionFusionBlock(args=args, in_channel=64 * 2, out_channel=64, mv_in_channel=512)
+        self.fusion2 = AttentionFusionBlock(args=args, in_channel=64 * 2, out_channel=128, mv_in_channel=256)
 
-        else:
-            assert False
+        self.mv_embed = nn.Linear(512, 256)
+        self.pt_final = nn.Conv1d(128, 256, kernel_size=1, stride=1)
+
+        self.final_fc = nn.Sequential(
+            nn.Linear(512, 512, bias=False),
+            nn.BatchNorm1d(512),
+            nn.Dropout(p=args.dropout),
+            nn.Linear(512, 256),
+            nn.BatchNorm1d(256),
+            nn.Dropout(p=args.dropout),
+            nn.Linear(256, 40)
+        )
 
     def forward(self, pc, cls=None):
+        B = pc.shape[0]
+
         pc = pc.to(next(self.parameters()).device)
         img = self.get_img(pc)
         mv_feat = self.img_model(img)
 
         pc = pc.permute(0, 2, 1).contiguous()
-        pt_feat = self.dgcnn.get_pointwise_feature_for_fusion(pc)
+        pt_feat = pc
+        pt_feat = self.edge_conv1(pt_feat)
+        pt_feat = self.edge_conv2(pt_feat)
+        pt_feat = self.edge_conv3(pt_feat)
 
-        print(mv_feat.shape, pt_feat.shape)
-        exit(0)
-        # if self.task == 'cls':
-        #     assert cls is None
-        #     logit = self.model(pc)
-        #     out = {'logit': logit}
-        # else:
-        #     assert False
+        # do maxpooling over mv_feat.
+        mv_feat = torch.reshape(mv_feat, shape=(B, self.num_views, -1))
+        mv_feat = torch.max(mv_feat, dim=1)[0]
 
-        # return out
+        # tile and repeat mv feat.
+        num_points = pt_feat.shape[-1]
+        pt_feat = self.fusion1(pt_feat, mv_feat)
+        mv_feat = self.mv_embed(mv_feat)
+        pt_feat = self.fusion2(pt_feat, mv_feat)
+
+        pt_feat = self.pt_final(pt_feat)
+        pt_feat = torch.max(pt_feat, dim=2)[0]
+
+        final_fuse = torch.cat([pt_feat, mv_feat], dim=1)
+        logit = self.final_fc(final_fuse)
+
+        return {'logit': logit}
 
     def get_img(self, pc):
         img = self.pc_views.get_img(pc)
@@ -106,6 +129,64 @@ class DgcnnAttentionFusion(nn.Module):
         ]
 
         return img_layers, in_features
+
+
+class EdgeConvBlock(nn.Module):
+    """
+    this code is adapted from DGCNN.
+    """
+
+    def __init__(self, args, in_channel, out_channel):
+        super(EdgeConvBlock, self).__init__()
+        self.k = args.k
+        self.leaky_relu = bool(args.leaky_relu)
+        if self.leaky_relu:
+            act_mod = nn.LeakyReLU
+            act_mod_args = {'negative_slope': 0.2}
+        else:
+            act_mod = nn.ReLU
+            act_mod_args = {}
+        self.bn = nn.BatchNorm2d(out_channel)
+        self.conv = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=1, bias=False),
+                                  self.bn,
+                                  act_mod(**act_mod_args))
+
+    def forward(self, x):
+        x = get_graph_feature(x, k=self.k)
+        x = self.conv(x)
+        x = x.max(dim=-1, keepdim=False)[0]
+        return x
+
+
+class AttentionFusionBlock(EdgeConvBlock):
+    def __init__(self, args, in_channel, out_channel, mv_in_channel):
+        super(AttentionFusionBlock, self).__init__(args, in_channel, out_channel)
+        self.attention_nn = nn.Conv1d(in_channel // 2 + mv_in_channel, out_channel, kernel_size=1, stride=1)
+
+    def forward(self, pc_feat, view_feat):
+        """
+        pc_feat: (B, feat_size, num_points).
+        view_feat: (B, view_feat).
+        Args:
+            pc_feat:
+            view_feat:
+
+        Returns:
+        """
+        # first
+        # tile view feat.
+        num_points = pc_feat.shape[-1]
+        view_feat_tile = torch.unsqueeze(view_feat, dim=-1).repeat(1, 1, num_points)
+        fuse_feat = torch.cat([pc_feat, view_feat_tile], dim=1)
+        fuse_attention = self.attention_nn(fuse_feat)
+
+        # quantize this attention, the range is [0, 1].
+        fuse_attention = F.sigmoid(torch.log(torch.abs(fuse_attention) + 1e-10))
+        # rescale it to [-1, 1].
+        fuse_attention = fuse_attention * 2 - 1
+        pc_feat = super(AttentionFusionBlock, self).forward(pc_feat)
+        refined_pt_feat = pc_feat + pc_feat * fuse_attention
+        return refined_pt_feat
 
 
 class MVFC(nn.Module):

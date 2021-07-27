@@ -117,6 +117,9 @@ class DGCNN(nn.Module):
         self.conv2 = nn.Sequential(nn.Conv2d(64 * 2, 64, kernel_size=1, bias=False),
                                    self.bn2,
                                    act_mod(**act_mod_args))
+        self.conv22 = nn.Sequential(nn.Conv2d(64 * 2, 64, kernel_size=1, bias=False),
+                                   self.bn2,
+                                   act_mod(**act_mod_args))
         self.conv3 = nn.Sequential(nn.Conv2d(64 * 2, 128, kernel_size=1, bias=False),
                                    self.bn3,
                                    act_mod(**act_mod_args))
@@ -175,29 +178,3 @@ class DGCNN(nn.Module):
         x = self.linear3(x)
         return x
 
-    def get_pointwise_feature_for_fusion(self, x):
-        batch_size = x.size(0)
-        # here is a feature aggregation network.
-        # we can see that there are four identical layers.
-        x = get_graph_feature(x, k=self.k)
-        x = self.conv1(x)
-        x1 = x.max(dim=-1, keepdim=False)[0]
-
-        x = get_graph_feature(x1, k=self.k)
-        x = self.conv2(x)
-        x2 = x.max(dim=-1, keepdim=False)[0]
-
-        x = get_graph_feature(x2, k=self.k)
-        x = self.conv3(x)
-        x3 = x.max(dim=-1, keepdim=False)[0]
-
-        x = get_graph_feature(x3, k=self.k)
-        x = self.conv4(x)
-        x4 = x.max(dim=-1, keepdim=False)[0]
-
-        # sucheng: concatenate this multi-scale feature.
-        x = torch.cat((x1, x2, x3, x4), dim=1)
-
-        x = self.conv5(x)
-        # sucheng: here, we've got the pointwise feature output.
-        return x
