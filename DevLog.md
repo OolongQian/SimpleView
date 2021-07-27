@@ -30,3 +30,9 @@ Let's read how this training baseline is set up.
 
 After reading other papers, I realize that, although this is not a benchmark accepted by all other people, we find that this 
     is a benchmark nevertheless, which can be acknowledged by a broad number of people. 
+
+
+### Progress 
+
+My first attempt fails! 
+Next I try the existing way to fuse multi-modality feature. 

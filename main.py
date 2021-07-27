@@ -185,6 +185,7 @@ def train(task, loader, model, optimizer, loss_name, dataset_name):
         time1 = time()
 
         inp = get_inp(task, model, data_batch, loader.dataset.batch_proc, dataset_name)
+        torch.autograd.set_detect_anomaly(True)
         out = model(**inp)
         loss = get_loss(task, loss_name, data_batch, out, dataset_name)
 
@@ -195,7 +196,10 @@ def train(task, loader, model, optimizer, loss_name, dataset_name):
             print("WARNING: avoiding step as nan in the loss")
         else:
             optimizer.zero_grad()
-            loss.backward()
+            print(loss.item())
+            with torch.autograd.detect_anomaly():
+                loss.backward()
+            # loss.backward()
             bad_grad = False
             for name, x in model.named_parameters():
                 if x.grad is not None:
@@ -314,6 +318,11 @@ def get_model(cfg):
             **cfg.MODEL.MV)
     elif cfg.EXP.MODEL_NAME == 'projnet':
         model = models.ProjNet(
+            task=cfg.EXP.TASK,
+            dataset=cfg.EXP.DATASET,
+            **cfg.MODEL.MV)
+    elif cfg.EXP.MODEL_NAME == 'dgcnn_attention_fusion':
+        model = models.DgcnnAttentionFusion(
             task=cfg.EXP.TASK,
             dataset=cfg.EXP.DATASET,
             **cfg.MODEL.MV)

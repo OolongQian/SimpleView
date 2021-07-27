@@ -34,44 +34,41 @@ class ProjNet(torch.nn.Module):
         self.num_views = self.pc_views.num_views
 
         img_layers, in_features = self.get_img_layers(backbone, feat_size)
-        self.img_model = nn.Sequential(*img_layers)
         # get some list of its feature.
         # each layer corresponds to some level of abstraction.
-        self.img_layer0 = list(self.img_model.children())[:4]
-        self.img_layer1 = list(self.img_model.children())[4:5]
-        self.img_layer2 = list(self.img_model.children())[5:6]
-        self.img_layer3 = list(self.img_model.children())[6:7]
-        self.final_layer = list(self.img_model.children())[7:]
+        self.img_layer0 = nn.ModuleList(img_layers[:4])
+        self.img_layer1 = nn.ModuleList(img_layers[4:5])
+        self.img_layer2 = nn.ModuleList(img_layers[5:6])
+        self.img_layer3 = nn.ModuleList(img_layers[6:7])
+        self.final_layer = nn.ModuleList(img_layers[7:])
 
+        self.batch_tmp0 = nn.BatchNorm2d(4)
         self.proj_nn0 = nn.Sequential(
-            nn.BatchNorm2d(4),
             nn.Conv2d(4, 16, kernel_size=1, stride=1),
             nn.ReLU()
         )
         self.proj_nn1 = nn.Sequential(
-            nn.BatchNorm2d(129),
             nn.Conv2d(129, 32, kernel_size=1, stride=1),
             nn.ReLU()
         )
         self.proj_nn2 = nn.Sequential(
-            nn.BatchNorm2d(257),
             nn.Conv2d(257, 64, kernel_size=1, stride=1),
             nn.ReLU()
         )
 
         self.fuse_nn0 = nn.Sequential(
-            nn.Conv2d(16 * 2, 16, kernel_size=1, stride=1),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(16 * 2, 16 * 2, kernel_size=1, stride=1),
+            # nn.BatchNorm2d(16),
             nn.ReLU()
         )
         self.fuse_nn1 = nn.Sequential(
-            nn.Conv2d(32 * 2, 32, kernel_size=1, stride=1),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(32 * 2, 32 * 2, kernel_size=1, stride=1),
+            # nn.BatchNorm2d(32),
             nn.ReLU()
         )
         self.fuse_nn2 = nn.Sequential(
-            nn.Conv2d(64 * 2, 64, kernel_size=1, stride=1),
-            nn.BatchNorm2d(64),
+            nn.Conv2d(64 * 2, 64 * 2, kernel_size=1, stride=1),
+            # nn.BatchNorm2d(64),
             nn.ReLU()
         )
 
@@ -104,9 +101,11 @@ class ProjNet(torch.nn.Module):
         img0 = self.get_img(pc)
         # img1 = self.get_img(xyz1)
         # img2 = self.get_img(xyz2)
-        feat_img0 = self.get_featured_img(xyz0, xyz0)
+        feat_img0 = self.get_featured_img(xyz0, xyz0 - torch.mean(xyz0, dim=1, keepdim=True))
         feat_img1 = self.get_featured_img(xyz1, features1.transpose(1, 2))
         feat_img2 = self.get_featured_img(xyz2, features2.transpose(1, 2))
+        print(feat_img2.shape)
+        exit(0)
 
         # sucheng: shit, the image quality is so fucking low.
         # img = img2
@@ -138,7 +137,10 @@ class ProjNet(torch.nn.Module):
         imfeat0 = img0
         # (16, 128, 128).
         imfeat1 = list_nn_forward(self.img_layer0, imfeat0)
+        print(imfeat1.shape)
         fuse_feat1 = self.fuse_nn0(torch.cat([imfeat1, feat_img0], dim=1))
+        print(fuse_feat1.shape)
+        exit(0)
         # (32, 64, 64).
         imfeat2 = list_nn_forward(self.img_layer1, fuse_feat1)
         fuse_feat2 = self.fuse_nn1(torch.cat([imfeat2, F.max_pool2d(feat_img1, kernel_size=2)], dim=1))
@@ -169,7 +171,7 @@ class ProjNet(torch.nn.Module):
             layers=layers,
             pretrained=False,
             progress=False,
-            feature_size=feat_size,
+            feature_size=feat_size * 2,
             zero_init_residual=True)
 
         all_layers = [x for x in backbone_mod.children()]

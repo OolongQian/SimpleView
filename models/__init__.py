@@ -6,3 +6,4 @@ from .pointnet import PointNet
 from .liftnet import LiftNet
 from .mv_pointnet import MVPointNet
 from .projnet import ProjNet
+from .dgcnnattentionfusion import DgcnnAttentionFusion

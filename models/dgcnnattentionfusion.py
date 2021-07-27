@@ -1,17 +1,18 @@
 import torch
 import torch.nn as nn
+from dgcnn.pytorch.model import DGCNN as DGCNN_original
 from all_utils import DATASET_NUM_CLASS
 from models.model_utils import Squeeze, BatchNormPoint
 from models.mv_utils import PCViews
 
 
-class MVModel(nn.Module):
+class DgcnnAttentionFusion(nn.Module):
+
     def __init__(self, task, dataset, backbone, feat_size):
-        super(MVModel, self).__init__()
-        assert task == 'cls'
+        super(DgcnnAttentionFusion, self).__init__()
         self.task = task
-        self.num_class = DATASET_NUM_CLASS[dataset]
-        # sucheng: should this dropout_p be standardized?
+        self.dataset = dataset
+
         self.dropout_p = 0.5
         self.feat_size = feat_size
 
@@ -22,23 +23,41 @@ class MVModel(nn.Module):
             backbone, feat_size=feat_size)
         self.img_model = nn.Sequential(*img_layers)
 
-        self.final_fc = MVFC(
-            num_views=self.num_views,
-            in_features=in_features,
-            out_features=self.num_class,
-            dropout_p=self.dropout_p)
+        if task == "cls":
+            num_classes = DATASET_NUM_CLASS[dataset]
 
-    def forward(self, pc):
-        """
-        :param pc:
-        :return:
-        """
-        pc = pc.cuda()
+            # default arguments
+            class Args:
+                def __init__(self):
+                    self.k = 20
+                    self.emb_dims = 1024
+                    self.dropout = 0.5
+                    self.leaky_relu = 1
+
+            args = Args()
+            self.dgcnn = DGCNN_original(args, output_channels=num_classes)
+
+        else:
+            assert False
+
+    def forward(self, pc, cls=None):
+        pc = pc.to(next(self.parameters()).device)
         img = self.get_img(pc)
-        feat = self.img_model(img)
-        logit = self.final_fc(feat)
-        out = {'logit': logit}
-        return out
+        mv_feat = self.img_model(img)
+
+        pc = pc.permute(0, 2, 1).contiguous()
+        pt_feat = self.dgcnn.get_pointwise_feature_for_fusion(pc)
+
+        print(mv_feat.shape, pt_feat.shape)
+        exit(0)
+        # if self.task == 'cls':
+        #     assert cls is None
+        #     logit = self.model(pc)
+        #     out = {'logit': logit}
+        # else:
+        #     assert False
+
+        # return out
 
     def get_img(self, pc):
         img = self.pc_views.get_img(pc)

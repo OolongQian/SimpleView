@@ -1,8 +1,8 @@
-
 import torch.nn as nn
 import torch.nn.functional as F
 from dgcnn.pytorch.model import DGCNN as DGCNN_original
 from all_utils import DATASET_NUM_CLASS
+
 
 class DGCNN(nn.Module):
 
@@ -13,6 +13,7 @@ class DGCNN(nn.Module):
 
         if task == "cls":
             num_classes = DATASET_NUM_CLASS[dataset]
+
             # default arguments
             class Args:
                 def __init__(self):
@@ -20,6 +21,7 @@ class DGCNN(nn.Module):
                     self.emb_dims = 1024
                     self.dropout = 0.5
                     self.leaky_relu = 1
+
             args = Args()
             self.model = DGCNN_original(args, output_channels=num_classes)
 
